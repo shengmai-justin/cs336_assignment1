@@ -190,7 +190,7 @@ def train_bpe(
     print(f"  Vocab init: 256 bytes + {len(special_tokens)} special tokens. Need {num_merges_target} merges.")
 
     merges: list[tuple[bytes, bytes]] = []
-    pretokens = pretokenize(input_path=input_path, special_tokens=special_tokens)
+    pretokens = pretokenize_parallel(input_path=input_path, special_tokens=special_tokens)
 
     for merge_idx in range(num_merges_target):
         pair_counts = get_pair_counts(pretokens)
@@ -201,6 +201,9 @@ def train_bpe(
         vocab[new_id] = best_pair[0] + best_pair[1]
         pretokens = apply_merge(pretokens=pretokens, pair=best_pair)
 
+    t_end = time.time()
+    print(f"  Training completed in {t_end - t_start:.2f}s")
+    
     return (vocab, merges)
 
 
