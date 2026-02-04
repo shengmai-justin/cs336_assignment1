@@ -244,7 +244,7 @@ def train_bpe(
 
         new_id = 256 + len(special_tokens) + merge_idx
         vocab[new_id] = best_pair[0] + best_pair[1]
-        pretokens, pair_counts = apply_merge_and_update_counts(pretokens=pretokens, pair=best_pair, pair_counts=pair_counts)
+        pretokens, pair_counts = apply_merge_and_update_counts(pretokens=pretokens, pair_to_merge=best_pair, pair_counts=pair_counts)
 
     t_end = time.time()
     print(f"  Training completed in {t_end - t_start:.2f}s")
