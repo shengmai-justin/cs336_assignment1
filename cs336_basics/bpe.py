@@ -6,7 +6,7 @@ import time
 import regex
 
 PAT = r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-
+import heapq
 import os
 from typing import BinaryIO
 
@@ -104,9 +104,10 @@ def apply_merge_and_update_counts(
     pretokens: dict[tuple[bytes, ...], int],
     pair_to_merge: tuple[bytes, bytes],
     pair_counts: dict[tuple[bytes, bytes], int]
-) -> tuple[dict[tuple[bytes, ...], int], dict[tuple[bytes, bytes], int]]:
+) -> tuple[dict[tuple[bytes, ...], int], dict[tuple[bytes, bytes], int], set]:
     
     new_pretokens: dict[tuple[bytes, ...], int] = {}
+    changed_pairs: set[tuple[bytes, bytes]] = set()
 
     for token_tuple, freq in pretokens.items():
         if len(token_tuple) < 2:
@@ -123,24 +124,21 @@ def apply_merge_and_update_counts(
         for i in range(len(token_tuple) - 1):
             old_pair = (token_tuple[i], token_tuple[i+1])
             pair_counts[old_pair] -= freq
+            changed_pairs.add(old_pair)
             if pair_counts[old_pair] <= 0:  # ← Add this check
                 del pair_counts[old_pair]
         
         for i in range(len(new_token_tuple) - 1):
             new_pair = (new_token_tuple[i], new_token_tuple[i+1])
             pair_counts[new_pair] = pair_counts.get(new_pair, 0) + freq
+            changed_pairs.add(new_pair)
         
         new_pretokens[new_token_tuple] = new_pretokens.get(new_token_tuple, 0) + freq
 
     
-    return new_pretokens, pair_counts
+    return new_pretokens, pair_counts, changed_pairs
 
         
-
-
-
-
-
 def pretokenize(input_path: str, special_tokens: list[str]) -> dict[tuple[bytes, ...], int]:
     with open(input_path, "r", encoding="utf-8") as f:
         text = f.read()
@@ -235,17 +233,31 @@ def train_bpe(
 
     pair_counts = get_pair_counts(pretokens)
 
+    heap = [(-counts, pair) for pair, counts in pair_counts.items()]
+    heapq.heapify(heap)
+
     for merge_idx in range(num_merges_target):
         #pair_counts = get_pair_counts(pretokens)
+        while heap:
+            neg_count, pair = heap[0]
+            if pair_counts.get(pair, 0) == -neg_count:
+                best_pair = pair
+                heapq.heappop(heap)
+                break
+            heapq.heappop(heap)
         if not pair_counts:
             break
-        best_pair = max(pair_counts, key=lambda p: (pair_counts[p], p))
+
         merges.append(best_pair)
 
         new_id = 256 + len(special_tokens) + merge_idx
         vocab[new_id] = best_pair[0] + best_pair[1]
-        pretokens, pair_counts = apply_merge_and_update_counts(pretokens=pretokens, pair_to_merge=best_pair, pair_counts=pair_counts)
+        pretokens, pair_counts, changed_pairs = apply_merge_and_update_counts(pretokens=pretokens, pair_to_merge=best_pair, pair_counts=pair_counts)
 
+        for pair in changed_pairs:
+            count = pair_counts.get(pair, 0)
+            if count > 0:
+                heapq.heappush(heap, (-count, pair))
     t_end = time.time()
     print(f"  Training completed in {t_end - t_start:.2f}s")
     
