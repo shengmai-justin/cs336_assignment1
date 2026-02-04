@@ -100,6 +100,47 @@ def apply_merge(pretokens: dict[tuple[bytes, ...], int], pair: tuple[bytes, byte
 
     return new_pretokens
 
+def apply_merge_and_update_counts(
+    pretokens: dict[tuple[bytes, ...], int],
+    pair_to_merge: tuple[bytes, bytes],
+    pair_counts: dict[tuple[bytes, bytes], int]
+) -> tuple[dict[tuple[bytes, ...], int], dict[tuple[bytes, bytes], int]]:
+    
+    new_pretokens: dict[tuple[bytes, ...], int] = {}
+
+    for token_tuple, freq in pretokens.items():
+        if len(token_tuple) < 2:
+            new_pretokens[token_tuple] = new_pretokens.get(token_tuple, 0) + freq
+            continue
+
+        new_token_tuple = merge_pair_in_tuple(token_tuple, pair_to_merge)
+        
+        if new_token_tuple == token_tuple:
+            # No merge happened, keep as-is
+            new_pretokens[token_tuple] = freq
+            continue
+            
+        for i in range(len(token_tuple) - 1):
+            old_pair = (token_tuple[i], token_tuple[i+1])
+            pair_counts[old_pair] -= freq
+            if pair_counts[old_pair] <= 0:  # ← Add this check
+                del pair_counts[old_pair]
+        
+        for i in range(len(new_token_tuple) - 1):
+            new_pair = (new_token_tuple[i], new_token_tuple[i+1])
+            pair_counts[new_pair] = pair_counts.get(new_pair, 0) + freq
+        
+        new_pretokens[new_token_tuple] = new_pretokens.get(new_token_tuple, 0) + freq
+
+    
+    return new_pretokens, pair_counts
+
+        
+
+
+
+
+
 def pretokenize(input_path: str, special_tokens: list[str]) -> dict[tuple[bytes, ...], int]:
     with open(input_path, "r", encoding="utf-8") as f:
         text = f.read()
@@ -192,14 +233,18 @@ def train_bpe(
     merges: list[tuple[bytes, bytes]] = []
     pretokens = pretokenize_parallel(input_path=input_path, special_tokens=special_tokens)
 
+    pair_counts = get_pair_counts(pretokens)
+
     for merge_idx in range(num_merges_target):
-        pair_counts = get_pair_counts(pretokens)
+        #pair_counts = get_pair_counts(pretokens)
+        if not pair_counts:
+            break
         best_pair = max(pair_counts, key=lambda p: (pair_counts[p], p))
         merges.append(best_pair)
 
         new_id = 256 + len(special_tokens) + merge_idx
         vocab[new_id] = best_pair[0] + best_pair[1]
-        pretokens = apply_merge(pretokens=pretokens, pair=best_pair)
+        pretokens, pair_counts = apply_merge_and_update_counts(pretokens=pretokens, pair=best_pair, pair_counts=pair_counts)
 
     t_end = time.time()
     print(f"  Training completed in {t_end - t_start:.2f}s")
