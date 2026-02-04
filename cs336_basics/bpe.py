@@ -209,6 +209,16 @@ def pretokenize_parallel(
 
     return combined_counts
 
+class MaxPair:
+    __slots__ = ['pair']
+    def __init__(self, pair):
+        self.pair = pair
+    def __lt__(self, other):
+        # Invert comparison so larger pairs come first in min-heap
+        return self.pair > other.pair
+    def __eq__(self, other):
+        return self.pair == other.pair
+    
 def train_bpe(
     input_path: str,
     vocab_size: int,
@@ -233,13 +243,14 @@ def train_bpe(
 
     pair_counts = get_pair_counts(pretokens)
 
-    heap = [(-counts, pair) for pair, counts in pair_counts.items()]
+    heap = [(-counts, MaxPair(pair)) for pair, counts in pair_counts.items()]
     heapq.heapify(heap)
 
     for merge_idx in range(num_merges_target):
         #pair_counts = get_pair_counts(pretokens)
         while heap:
-            neg_count, pair = heap[0]
+            neg_count, max_pair_obj = heap[0]
+            pair = max_pair_obj.pair
             if pair_counts.get(pair, 0) == -neg_count:
                 best_pair = pair
                 heapq.heappop(heap)
@@ -257,7 +268,7 @@ def train_bpe(
         for pair in changed_pairs:
             count = pair_counts.get(pair, 0)
             if count > 0:
-                heapq.heappush(heap, (-count, pair))
+                heapq.heappush(heap, (-count, MaxPair(pair)))
     t_end = time.time()
     print(f"  Training completed in {t_end - t_start:.2f}s")
     
