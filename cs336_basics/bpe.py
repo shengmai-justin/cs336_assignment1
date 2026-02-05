@@ -300,7 +300,7 @@ def train_bpe(
 
         new_id = 256 + len(special_tokens) + merge_idx
         vocab[new_id] = best_pair[0] + best_pair[1]
-        pretokens, pair_counts, changed_pairs = apply_merge_and_update_counts(pretokens=pretokens, pair_to_merge=best_pair, pair_counts=pair_counts)
+        pretokens, pair_counts, changed_pairs = apply_merge_and_update_counts(pretokens=pretokens, pair_to_merge=best_pair, pair_counts=pair_counts, pair_to_pretokens=pair_to_pretokens)
 
         for pair in changed_pairs:
             count = pair_counts.get(pair, 0)
