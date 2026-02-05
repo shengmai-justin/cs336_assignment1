@@ -57,15 +57,18 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
     return sorted(set(chunk_boundaries))
 
-def get_pair_counts(pretokens: dict[tuple[bytes, ...], int]) -> dict[tuple[bytes, bytes], int]:
+def get_pair_counts(pretokens: dict[tuple[bytes, ...], int]) -> tuple[dict[tuple[bytes, bytes], int], dict[tuple[bytes, bytes], set[tuple[bytes, ...]]]]:
     """Count all adjacent pairs across all pre-tokens, weighted by frequency."""
     pair_count: dict[tuple[bytes, bytes], int] = defaultdict(int)
+    pair_to_pretokens: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]] = defaultdict(set)
+
     for pre_token, freq in pretokens.items():
         for i in range(len(pre_token) - 1):
             pair = (pre_token[i], pre_token[i + 1])
             pair_count[pair] += freq
+            pair_to_pretokens[pair].add(pre_token)
         
-    return pair_count
+    return pair_count, pair_to_pretokens
 
 def merge_pair_in_tuple(token_tuple: tuple[bytes, ...], pair: tuple[bytes, bytes]) -> tuple[bytes, ...]:
 
@@ -103,37 +106,69 @@ def apply_merge(pretokens: dict[tuple[bytes, ...], int], pair: tuple[bytes, byte
 def apply_merge_and_update_counts(
     pretokens: dict[tuple[bytes, ...], int],
     pair_to_merge: tuple[bytes, bytes],
-    pair_counts: dict[tuple[bytes, bytes], int]
+    pair_counts: dict[tuple[bytes, bytes], int],
+    pair_to_pretokens: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]]
 ) -> tuple[dict[tuple[bytes, ...], int], dict[tuple[bytes, bytes], int], set]:
     
     new_pretokens: dict[tuple[bytes, ...], int] = {}
     changed_pairs: set[tuple[bytes, bytes]] = set()
+    affected_pretokens = list(pair_to_pretokens.pop(pair_to_merge, set()))
+    del pair_counts[pair_to_merge]
 
-    for token_tuple, freq in pretokens.items():
-        if len(token_tuple) < 2:
-            new_pretokens[token_tuple] = new_pretokens.get(token_tuple, 0) + freq
+    for old_pretoken in affected_pretokens:
+        if old_pretoken not in pretokens:
             continue
 
-        new_token_tuple = merge_pair_in_tuple(token_tuple, pair_to_merge)
-        
-        if new_token_tuple == token_tuple:
-            # No merge happened, keep as-is
-            new_pretokens[token_tuple] = freq
+        freq = pretokens.pop(old_pretoken)
+        new_pretoken = merge_pair_in_tuple(old_pretoken, pair_to_merge)
+
+        if new_pretoken == old_pretoken:
+            pretokens[old_pretoken] = freq
             continue
-            
-        for i in range(len(token_tuple) - 1):
-            old_pair = (token_tuple[i], token_tuple[i+1])
+
+        for i in range(len(old_pretoken) - 1):
+            old_pair = (old_pretoken[i], old_pretoken[i+1])
             pair_counts[old_pair] -= freq
             changed_pairs.add(old_pair)
             if pair_counts[old_pair] <= 0:  # ← Add this check
                 del pair_counts[old_pair]
+            pair_to_pretokens[old_pair].discard(old_pretoken)
         
-        for i in range(len(new_token_tuple) - 1):
-            new_pair = (new_token_tuple[i], new_token_tuple[i+1])
+        for i in range(len(new_pretoken) - 1):
+            new_pair = (new_pretoken[i], new_pretoken[i+1])
             pair_counts[new_pair] = pair_counts.get(new_pair, 0) + freq
+            pair_to_pretokens[new_pair].add(new_pretoken)
             changed_pairs.add(new_pair)
         
-        new_pretokens[new_token_tuple] = new_pretokens.get(new_token_tuple, 0) + freq
+        pretokens[new_pretoken] = pretokens.get(new_pretoken, 0) + freq
+
+
+    
+    # for token_tuple, freq in pretokens.items():
+    #     if len(token_tuple) < 2:
+    #         new_pretokens[token_tuple] = new_pretokens.get(token_tuple, 0) + freq
+    #         continue
+
+    #     new_token_tuple = merge_pair_in_tuple(token_tuple, pair_to_merge)
+        
+    #     if new_token_tuple == token_tuple:
+    #         # No merge happened, keep as-is
+    #         new_pretokens[token_tuple] = freq
+    #         continue
+            
+    #     for i in range(len(token_tuple) - 1):
+    #         old_pair = (token_tuple[i], token_tuple[i+1])
+    #         pair_counts[old_pair] -= freq
+    #         changed_pairs.add(old_pair)
+    #         if pair_counts[old_pair] <= 0:  # ← Add this check
+    #             del pair_counts[old_pair]
+        
+    #     for i in range(len(new_token_tuple) - 1):
+    #         new_pair = (new_token_tuple[i], new_token_tuple[i+1])
+    #         pair_counts[new_pair] = pair_counts.get(new_pair, 0) + freq
+    #         changed_pairs.add(new_pair)
+        
+    #     new_pretokens[new_token_tuple] = new_pretokens.get(new_token_tuple, 0) + freq
 
     
     return new_pretokens, pair_counts, changed_pairs
@@ -241,7 +276,9 @@ def train_bpe(
     merges: list[tuple[bytes, bytes]] = []
     pretokens = pretokenize_parallel(input_path=input_path, special_tokens=special_tokens)
 
-    pair_counts = get_pair_counts(pretokens)
+    pair_counts, pair_to_pretokens = get_pair_counts(pretokens)
+    
+
 
     heap = [(-counts, MaxPair(pair)) for pair, counts in pair_counts.items()]
     heapq.heapify(heap)
