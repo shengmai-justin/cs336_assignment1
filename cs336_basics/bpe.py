@@ -110,7 +110,7 @@ def apply_merge_and_update_counts(
     pair_to_pretokens: dict[tuple[bytes, bytes], set[tuple[bytes, ...]]]
 ) -> tuple[dict[tuple[bytes, ...], int], dict[tuple[bytes, bytes], int], set]:
     
-    new_pretokens: dict[tuple[bytes, ...], int] = {}
+    #new_pretokens: dict[tuple[bytes, ...], int] = {}
     changed_pairs: set[tuple[bytes, bytes]] = set()
     affected_pretokens = list(pair_to_pretokens.pop(pair_to_merge, set()))
     del pair_counts[pair_to_merge]
@@ -171,7 +171,7 @@ def apply_merge_and_update_counts(
     #     new_pretokens[new_token_tuple] = new_pretokens.get(new_token_tuple, 0) + freq
 
     
-    return new_pretokens, pair_counts, changed_pairs
+    return pretokens, pair_counts, changed_pairs
 
         
 def pretokenize(input_path: str, special_tokens: list[str]) -> dict[tuple[bytes, ...], int]:
